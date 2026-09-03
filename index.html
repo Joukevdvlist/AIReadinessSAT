@@ -381,8 +381,8 @@
 
     <!-- INTRO STEP (its own page; the first section starts on the next one) -->
     <div id="introBlock" style="display:none;">
-      <div class="eyebrow">Data &amp; AI Readiness Assessment</div>
-      <h1>The Asset Management AI Maturity Scan</h1>
+      <div class="eyebrow">Data &amp; AI Maturity Assessment</div>
+      <h1>The Asset Management AI Maturity Assessment</h1>
       <div class="lede">How ready is your organization to put data and AI to work on your assets?</div>
       <div class="sr-only">16 statements across 5 dimensions, answered on a 5-point agreement scale.</div>
       <div class="pill-row">
@@ -946,7 +946,7 @@ function updateProgress(onLeadStep){
     topLeft.textContent = "Last step · unlock your results";
   } else {
     const el = ELEMENTS[current];
-    topLeft.textContent = `Section ${current+1} of ${ELEMENTS.length} · ${el.label}`;
+    topLeft.textContent = `${el.label} · Section ${current+1} of ${ELEMENTS.length}`;
   }
 }
 
