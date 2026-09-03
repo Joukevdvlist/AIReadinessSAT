@@ -215,21 +215,13 @@
   .btn-share{background:var(--navy);color:#fff;white-space:nowrap;
     font-family:inherit;border:none;border-radius:10px;padding:13px 20px;font-size:14px;font-weight:700;cursor:pointer;}
   .btn-share:hover{background:var(--navy-light);}
-  /* On the dashboard the two action buttons sit side by side, so the
-     gold label of .btn-primary would clash with the white one next to
-     it. White here only; the gold-on-navy default stays in the form. */
-  #emailBtn{color:#fff;}
-  /* The closing call to action reads as a contact button, so white
-     rather than the gold used on the form's own primary buttons. */
-  #phaseCta{color:#fff;}
   .btn-share[disabled], .btn-primary[disabled]{opacity:.6;cursor:default;}
   .btn-quiet{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
   .btn-quiet:hover{background:transparent;color:var(--navy);border-color:var(--navy);}
-  .dash-actions{margin-top:14px;}
-  .action-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;}
-  @media (max-width:600px){
-    .action-row button{flex:1 1 auto;}
-  }
+  /* A single Download PDF button, flush with the left edge of the title. */
+  .dash-actions{margin-top:14px;text-align:left;}
+  .action-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;align-items:flex-start;}
+  .action-row button{flex:0 0 auto;}
 
   .phase-hero{
     position:relative;overflow:hidden;
@@ -373,6 +365,7 @@
       <div class="sr-only">16 statements across 5 dimensions, answered on a 5-point agreement scale.</div>
       <div class="pill-row">
         <span class="pill">16 statements</span>
+        <span class="pill">About 5 minutes</span>
         <span class="pill">Instant results</span>
       </div>
       <div class="intro-note">
@@ -462,7 +455,6 @@
       </div>
       <div class="dash-actions no-pdf">
         <div class="action-row">
-          <button class="btn-primary" id="emailBtn" type="button">Email me the PDF</button>
           <button class="btn-share" id="downloadBtn" type="button">Download PDF</button>
         </div>
         <div class="toast" id="pdfToast"></div>
@@ -519,7 +511,6 @@
     <div class="next-steps" id="nextStepsBlock">
       <h3 id="nextStepsTitle">Your next step per dimension</h3>
       <ol id="nextStepsList"></ol>
-      <button class="btn-primary" id="phaseCta" type="button"></button>
     </div>
 
   </div>
@@ -574,23 +565,13 @@ const MAX_ROWS = 5000;          // cap on rows pulled for the statistics
 const SCORES_VIEW = "submission_scores";
 
 /* ============================================================
-   EMAILING THE RESULTS
-   The browser cannot send mail, so the PDF is built here and posted
-   to a Supabase Edge Function ("email-results", source in
-   edge-function-email-results.ts) which sends it through Resend.
-
-   The recipient is deliberately NOT sent from the browser: the
-   function looks up the email address stored with this submission.
-   Since the anon key is public, anyone could otherwise call the
-   endpoint and have it mail an arbitrary address.
-
-   public_id is generated here and written with the submission, so
-   the function can find the row without the browser needing read
-   access to the submissions table.
+   SUBMISSION ID
+   public_id is generated here and written with the submission, so a
+   row can be referred to later without the browser needing read
+   access to the submissions table. Results are not emailed from this
+   page; the respondent downloads the PDF from the dashboard.
    ============================================================ */
-const EMAIL_ENDPOINT = SUPABASE_URL + "/functions/v1/email-results";
 let submissionPublicId = null;
-let emailSent = false;
 
 function newPublicId(){
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -1113,17 +1094,15 @@ async function submitLead(info){
 
   if (!supabaseClient){
     console.log("Supabase not configured — submission (demo):", row);
-    submissionPublicId = null;      // nothing stored: nothing to mail
+    submissionPublicId = null;      // nothing stored
     return;
   }
 
   try {
     const { error } = await supabaseClient.from('submissions').insert(row);
     if (error){
-      /* The mail function finds the recipient by public_id, so an
-         unsaved row cannot be mailed. Clearing the id here is what makes
-         the dashboard say so instead of failing later with a 404. A
-         missing column (migration not run) shows up exactly here. */
+      /* The row was not saved, so there is no stored public_id to refer
+         to. A missing column (migration not run) shows up exactly here. */
       submissionPublicId = null;
       console.error(
         "Could not save submission to Supabase — code: " + error.code +
@@ -1448,13 +1427,11 @@ async function showResults(){
       (nextText ? `To reach level ${next.level}: ${nextText}` : `Already at the top level, so hold it there.`);
     stepsList.appendChild(li);
   });
-  document.getElementById('phaseCta').textContent = phase.cta;
 
-  autoEmailResults();
 }
 
 /* ============================================================
-   PDF EXPORT + EMAIL
+   PDF EXPORT
    ============================================================ */
 
 /* Width the dashboard is rendered at for the PDF. html2canvas renders
@@ -1577,130 +1554,6 @@ document.getElementById('downloadBtn').onclick = async () => {
   } catch (e){
     console.error("Could not build the PDF:", e);
     setToast('pdfToast', "Could not build the PDF. Please try again, or use Copy results.", true);
-  }
-};
-
-/* One send path, used by the automatic send and by the button. Returns
-   "sent" or "already" (the function refuses a second send per
-   submission); anything else throws. */
-async function sendResultsEmail(){
-  if (!submissionPublicId) throw new Error("Submission was not stored — nothing to look the recipient up by");
-
-  const pdf = await buildResultsPdf();
-  const base64 = pdf.output('datauristring').split(',')[1];
-
-  let res;
-  try {
-    res = await fetch(EMAIL_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
-      },
-      body: JSON.stringify({
-        submission_id: submissionPublicId,
-        filename: pdfFilename(),
-        pdf_base64: base64
-      })
-    });
-  } catch (e){
-    /* No HTTP status at all: the request never completed. Almost always
-       the function is not deployed yet, or its CORS headers do not allow
-       this site. Both look identical from the browser. */
-    throw new MailError("unreachable",
-      `Could not reach ${EMAIL_ENDPOINT} — ${e && e.message ? e.message : e}`);
-  }
-
-  if (res.status === 429) return "already";   // already mailed for this submission
-  if (res.ok) return "sent";
-
-  const detail = await res.text().catch(() => '');
-  const kind =
-    res.status === 404 ? (detail.includes("Unknown submission") ? "unknown-submission" : "not-deployed") :
-    res.status === 401 || res.status === 403 ? "unauthorized" :
-    res.status === 502 ? "provider" :
-    "other";
-  throw new MailError(kind, `Mail endpoint returned ${res.status} ${detail}`);
-}
-
-class MailError extends Error {
-  constructor(kind, message){ super(message); this.kind = kind; }
-}
-
-/* What the visitor is told, per failure. Deliberately short: the full
-   reason is in the console for whoever maintains this. */
-const MAIL_ERROR_TEXT = {
-  "unreachable":        "The mail service could not be reached. Download the PDF here instead.",
-  "not-deployed":       "The mail service is not available yet. Download the PDF here instead.",
-  "unknown-submission": "Your results were not stored, so they cannot be emailed. Download the PDF here instead.",
-  "unauthorized":       "The mail service refused the request. Download the PDF here instead.",
-  "provider":           "The mail could not be delivered. Download the PDF here instead.",
-  "other":              "We could not email your results. Download the PDF here instead."
-};
-
-function markEmailSent(){
-  emailSent = true;
-  const btn = document.getElementById('emailBtn');
-  btn.disabled = true;
-  btn.textContent = "PDF emailed ✓";
-  setToast('pdfToast', `Sent to ${leadInfo.email}. Check your spam folder if it does not arrive.`);
-}
-
-function markEmailFailed(err){
-  const btn = document.getElementById('emailBtn');
-  btn.disabled = false;
-  btn.textContent = "Email me the PDF";
-  const kind = (err && err.kind) || "other";
-  setToast('pdfToast', MAIL_ERROR_TEXT[kind] || MAIL_ERROR_TEXT.other, true);
-}
-
-/* ---- automatic send ----
-   Fires once, on its own, as soon as the dashboard is on screen: the
-   respondent already asked for their results by email on the previous
-   step, so making them click again only loses people. The button stays
-   for a manual retry when this fails.
-
-   The delay lets the bars and the gauge finish animating — html2canvas
-   photographs whatever is on screen, so capturing at 200ms would put
-   half-drawn bars in the PDF. */
-const AUTO_EMAIL = true;
-const AUTO_EMAIL_DELAY_MS = 1500;
-
-function autoEmailResults(){
-  if (!AUTO_EMAIL || emailSent || !submissionPublicId) return;
-  const btn = document.getElementById('emailBtn');
-  btn.disabled = true;
-  btn.textContent = "Emailing your PDF…";
-  setTimeout(async () => {
-    try {
-      await sendResultsEmail();
-      markEmailSent();
-    } catch (e){
-      console.error("Automatic send failed:", e);
-      markEmailFailed(e);
-    }
-  }, AUTO_EMAIL_DELAY_MS);
-}
-
-document.getElementById('emailBtn').onclick = async () => {
-  const btn = document.getElementById('emailBtn');
-  setToast('pdfToast', '');
-
-  if (!submissionPublicId){
-    /* No stored submission means the function has nothing to look the
-       recipient up by, and sending an address from the browser is
-       exactly what this design avoids. */
-    setToast('pdfToast', "Your results could not be saved, so they cannot be emailed. Use Download PDF instead.", true);
-    return;
-  }
-
-  try {
-    await withBusy(btn, "Sending…", sendResultsEmail);
-    markEmailSent();
-  } catch (e){
-    console.error("Could not email the results:", e);
-    markEmailFailed(e);
   }
 };
 
