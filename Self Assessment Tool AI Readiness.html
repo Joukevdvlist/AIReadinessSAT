@@ -1,0 +1,1710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Asset Management AI Readiness Scan</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- PDF export: html2canvas paints the results dashboard, jsPDF wraps the
+     image into an A4 document. Both are optional at runtime — if either
+     fails to load, the PDF buttons report it instead of breaking. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<style>
+  :root{
+    /* OHROS palette */
+    --navy:#15385e;          /* brand dark blue */
+    --navy-light:#1d4a7a;
+    --navy-deep:#0f2942;     /* darker end of the hero gradient */
+    --teal:#1fb6c9;
+    --teal-dark:#0f8fa0;
+
+    /* Brand gold replaces the old orange. Three tones, because one gold
+       cannot do every job: the mid tone is for fills and borders, the
+       bright tone only ever sits on the dark hero (it is unreadable on
+       white), and the deep tone is for gold-coloured TEXT on light
+       backgrounds, where #C09D42 would fail contrast. */
+    --amber:#c09d42;         /* brand gold — buttons, active markers */
+    --amber-hover:#a8862f;
+    --gold-bright:#fecc01;   /* light gold — dark backgrounds only */
+    --gold-text:#8a6a17;     /* gold text on white/light cards */
+    --gold-tint:#fdf6e4;     /* light gold fill */
+    --gold-border:#e8d49b;
+
+    /* Per-dimension colour by absolute level: 1 and 2 pale red,
+       3 grey, 4 and 5 pale green. Independent of your overall level,
+       so the same score always looks the same. */
+    --red-tint:#fdf4f4;
+    --red-border:#e6bebe;
+    --red-text:#a33b3b;
+    --green-tint:#f1faf4;
+    --green-border:#b9dfc8;
+    --green-text:#216b45;
+    --grey-tint:#f5f7fa;
+    --grey-border:#dbe3ec;
+
+    --bg:#eef2f7;
+    --card:#ffffff;
+    --text:#15385e;
+    --muted:#5b6b82;
+    --border:#e1e8f0;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:"Segoe UI", system-ui, -apple-system, sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    display:flex;
+    justify-content:center;
+    padding:28px 16px;
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{width:100%;max-width:760px;}
+
+  /* top progress bar */
+  .top-meta{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted);margin-bottom:6px;}
+  .progress-track{height:7px;background:#d7e0ea;border-radius:99px;overflow:hidden;margin-bottom:22px;}
+  .progress-fill{height:100%;background:var(--navy);width:0%;transition:width .35s ease;}
+
+  .card{
+    background:var(--card);border-radius:var(--radius);
+    box-shadow:0 10px 30px rgba(21,56,94,0.10);
+    padding:34px;border:1px solid var(--border);
+  }
+
+  .eyebrow{font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--amber);text-transform:uppercase;margin-bottom:10px;}
+  h1{font-size:24px;margin:0 0 8px;line-height:1.3;}
+  .lede{color:var(--muted);font-size:14.5px;margin-bottom:16px;line-height:1.6;}
+  .pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;}
+  .pill{background:#e7f6f8;color:var(--navy);font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:99px;}
+  .intro-note{
+    background:#f7fafc;border:1px solid var(--border);border-radius:10px;
+    padding:12px 16px;font-size:13.5px;color:var(--muted);line-height:1.6;margin-bottom:26px;
+  }
+
+  .element-title{font-size:19px;font-weight:700;margin:0 0 4px;}
+  .element-intro{color:var(--muted);font-size:14.5px;line-height:1.6;margin:6px 0 20px;}
+
+  .prompt-label{font-size:14px;font-weight:700;margin:0 0 14px;color:var(--navy);}
+
+  .statement{
+    border:1.5px solid var(--border);border-radius:10px;padding:16px 18px;margin:0 0 14px;
+    background:#fbfdfe;
+  }
+  .statement.unanswered{border-color:#e39b9b;background:#fffaf9;}
+  /* Borderless inner fieldset: keeps the radio group semantics for screen
+     readers without the legend cutting through the visible box border. */
+  .statement fieldset{border:0;padding:0;margin:0;min-width:0;}
+  .statement legend{
+    display:block;width:100%;font-weight:700;font-size:14.5px;
+    padding:0;margin:0 0 14px;line-height:1.45;
+  }
+  .likert{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;}
+  .likert label{
+    display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+    text-align:center;font-size:12.5px;color:var(--muted);cursor:pointer;
+    padding:8px 2px;border-radius:8px;transition:.15s ease;line-height:1.3;
+  }
+  .likert label:hover{background:#eef6f8;}
+  .likert input{position:absolute;opacity:0;width:0;height:0;}
+  .likert .dot{
+    width:20px;height:20px;border-radius:50%;border:2px solid #b9c6d6;
+    margin:0 0 8px;flex-shrink:0;transition:.15s ease;background:#fff;
+  }
+  .likert input:checked ~ .dot{border-color:var(--amber);background:var(--gold-bright);box-shadow:inset 0 0 0 3px #fff;}
+  .likert label:has(input:checked){color:#15385E;font-weight:700;background:var(--gold-tint);}
+  /* Same navy on the chosen answer's own text, through a plain sibling
+     selector rather than :has(). The rule above already does it in
+     current browsers; this one keeps it working where :has() does not. */
+  .likert input:checked ~ .txt{color:#15385E;font-weight:700;}
+  .likert label:has(input:focus-visible){outline:2px solid var(--teal-dark);outline-offset:2px;}
+
+  .likert-anchors{display:none;}
+
+  /* Mobile: the five written labels never fit side by side, and stacking
+     them vertically makes the page roughly four times longer (a real
+     drop-off driver). Instead: five large numbered targets with the scale
+     anchored underneath. */
+  @media (max-width:600px){
+    body{padding:16px 10px;}
+    .card{padding:22px 16px;}
+    h1{font-size:21px;}
+    .statement{padding:14px;}
+    .statement legend{font-size:15px;}
+    .likert{grid-template-columns:repeat(5,1fr);gap:4px;}
+    .likert label{padding:4px 0;}
+    .likert label .txt{
+      position:absolute;width:1px;height:1px;overflow:hidden;
+      clip:rect(0,0,0,0);white-space:nowrap;
+    }
+    .likert .dot{
+      width:46px;height:46px;max-width:100%;margin:0 auto;
+      display:flex;align-items:center;justify-content:center;
+      font-size:16px;font-weight:700;color:var(--muted);
+    }
+    .likert .dot::after{content:attr(data-v);}
+    .likert input:checked ~ .dot{
+      background:var(--gold-bright);border-color:var(--amber);color:#15385E;box-shadow:none;
+    }
+    .likert label:has(input:checked){background:transparent;}
+    .likert-anchors{
+      display:flex;justify-content:space-between;gap:10px;
+      font-size:11.5px;color:var(--muted);margin-top:8px;
+    }
+    .phase-hero{padding:24px 18px 20px;}
+    .phase-hero h2{font-size:22px;}
+    .gauge-wrap{flex:1 1 100%;}
+    .gauge-svg{margin:0 0 4px;}
+    /* Five phase names never fit across a phone; the fifth one clips.
+       Numbers only; the names are spelled out in the maturity legend
+       further down the page. */
+    .phase-track-labels div{font-size:11px;min-width:0;}
+    .phase-track-labels .pname{display:none;}
+    .phase-track-labels .pnum{font-weight:800;}
+    .bar-top{font-size:12.5px;}
+    .bar-top .name{min-width:0;}
+    .bar-top .delta{font-size:11.5px;}
+    .bars-footnote{font-size:11.5px;}
+  }
+
+  .error-msg{color:#c23b3b;font-size:13.5px;margin:4px 0 14px;display:none;}
+  .field-error{color:#c23b3b;font-size:12.5px;margin:6px 0 0;display:none;}
+
+  .nav-row{display:flex;justify-content:space-between;gap:12px;margin-top:22px;}
+  button{font-family:inherit;border:none;border-radius:10px;padding:13px 24px;font-size:14.5px;font-weight:700;cursor:pointer;transition:.15s ease;}
+  button:focus-visible{outline:2px solid var(--navy);outline-offset:2px;}
+  /* White on navy — 11.3:1. Hover lifts to the lighter navy. */
+  .btn-primary{background:var(--navy);color:#fff;}
+  .btn-primary:hover{background:var(--navy-light);}
+  .btn-primary[disabled]{opacity:.65;cursor:default;}
+  /* Mirror image of .btn-primary: white fill, navy border and navy label. */
+  .btn-ghost{background:#fff;color:var(--navy);border:1.5px solid var(--navy);}
+  .btn-ghost:hover{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .btn-ghost.hidden{visibility:hidden;}
+
+  /* lead capture step */
+  .lead-fields label{display:block;font-size:13.5px;font-weight:700;margin:14px 0 6px;}
+  input[type=text], input[type=email], select{
+    width:100%;padding:13px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:15px;font-family:inherit;
+    background:#fff;color:var(--text);
+  }
+  select{appearance:none;-webkit-appearance:none;cursor:pointer;
+    background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 20px) 55%, calc(100% - 14px) 55%;
+    background-size:6px 6px,6px 6px;background-repeat:no-repeat;}
+  /* Brand navy border while the field is being filled in, and once it
+     holds a value, so the lead-capture step reads as OHROS navy. */
+  input:focus, select:focus{outline:none;border-color:#15385E;}
+  input[type=text]:not(:placeholder-shown),
+  input[type=email]:not(:placeholder-shown),
+  select:not(:has(option[value=""]:checked)){border-color:#15385E;}
+  input.invalid, select.invalid{border-color:#c23b3b;}
+  .fine-print{font-size:12.5px;color:var(--muted);margin-top:14px;line-height:1.55;
+    background:#f7fafc;border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+  .fine-print b{color:var(--navy);}
+  .fine-print a{color:var(--navy);text-decoration:underline;}
+
+  /* ===================== RESULTS DASHBOARD ===================== */
+  #resultView{display:none;}
+  /* Title, subtitle and buttons all start at the same left edge. */
+  .dash-header{margin-bottom:18px;}
+  .dash-header h1{margin:0;}
+  .dash-sub{color:var(--muted);font-size:14px;margin-top:4px;}
+  .btn-share{background:var(--navy);color:#fff;white-space:nowrap;
+    font-family:inherit;border:none;border-radius:10px;padding:13px 20px;font-size:14px;font-weight:700;cursor:pointer;}
+  .btn-share:hover{background:var(--navy-light);}
+  /* On the dashboard the two action buttons sit side by side, so the
+     gold label of .btn-primary would clash with the white one next to
+     it. White here only; the gold-on-navy default stays in the form. */
+  #emailBtn{color:#fff;}
+  /* The closing call to action reads as a contact button, so white
+     rather than the gold used on the form's own primary buttons. */
+  #phaseCta{color:#fff;}
+  .btn-share[disabled], .btn-primary[disabled]{opacity:.6;cursor:default;}
+  .btn-quiet{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
+  .btn-quiet:hover{background:transparent;color:var(--navy);border-color:var(--navy);}
+  .dash-actions{margin-top:14px;}
+  .action-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;}
+  @media (max-width:600px){
+    .action-row button{flex:1 1 auto;}
+  }
+
+  .phase-hero{
+    position:relative;overflow:hidden;
+    background:var(--navy);
+    border-radius:18px;color:#fff;padding:30px 32px 24px;margin-bottom:22px;
+  }
+  .phase-hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:28px;flex-wrap:wrap;}
+  .phase-hero-copy{flex:1 1 380px;min-width:280px;}
+  .phase-eyebrow{font-size:12px;letter-spacing:.1em;color:var(--gold-bright);font-weight:800;text-transform:uppercase;margin-bottom:10px;}
+  .phase-hero h2{font-size:26px;line-height:1.25;margin:0 0 12px;}
+  .phase-hero p{font-size:14.5px;color:#c3cfe6;line-height:1.65;margin:0;}
+
+  /* semicircular gauge, matching the reference layout */
+  .gauge-wrap{flex:0 0 224px;max-width:100%;}
+  .gauge-svg{display:block;width:210px;height:118px;margin:0 auto 4px;}
+  .gauge-arc-bg{stroke:rgba(255,255,255,0.14);}
+  .gauge-arc-fg{stroke:var(--amber);transition:stroke-dashoffset .9s ease;}
+  .gauge-pct{font-size:37px;font-weight:800;fill:#fff;}
+  .gauge-pct .unit{font-size:20px;font-weight:700;}
+  .gauge-caption{font-size:12.5px;color:#c3cfe6;margin-top:2px;line-height:1.45;}
+  .gauge-caption strong{color:#4fd6e8;}
+
+  .phase-track{display:flex;gap:8px;margin-top:26px;}
+  .phase-seg{flex:1;height:6px;border-radius:99px;background:rgba(255,255,255,0.16);}
+  .phase-seg.active{background:#fff;}
+  .phase-track-labels{display:flex;gap:8px;margin-top:10px;}
+  .phase-track-labels div{flex:1;min-width:0;font-size:11.5px;color:#93a3c4;text-align:center;line-height:1.35;overflow-wrap:anywhere;}
+  .phase-track-labels div.current-label{color:#fff;font-weight:800;}
+
+  .element-bars{margin-top:30px;}
+  .bar-row{margin-bottom:19px;}
+  .bar-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13.5px;margin-bottom:8px;}
+  .bar-top .name{font-weight:700;}
+  .bar-top .delta{font-size:12.5px;font-weight:700;white-space:nowrap;}
+  .delta.up{color:#B0CFE5;}
+  .delta.down{color:var(--gold-bright);}
+  .delta.neutral{color:#93a3c4;}
+  .bar-track{position:relative;height:11px;background:rgba(255,255,255,0.12);border-radius:99px;}
+  .bar-fill{height:100%;border-radius:99px;background:#B0CFE5;width:0%;transition:width .8s ease;}
+  .bar-avg-marker{
+    position:absolute;top:-4px;height:19px;width:0;
+    border-left:2px dotted rgba(255,255,255,0.85);
+  }
+  .bars-footnote{font-size:12px;color:#8798ba;line-height:1.5;margin-top:20px;}
+  .bars-legend{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px;}
+  .bars-legend .lg{display:flex;align-items:center;gap:8px;font-size:12px;color:#c3cfe6;}
+  .bars-legend .lg-line{display:inline-block;width:0;height:14px;flex:0 0 auto;}
+  .bars-legend .lg-line.dotted{border-left:2px dotted rgba(255,255,255,0.85);}
+
+  /* maturity level per dimension */
+  .maturity-block{margin-bottom:22px;}
+  .maturity-block h3{font-size:17px;margin:0 0 4px;}
+  .maturity-block .sub{font-size:13.5px;color:var(--muted);margin-bottom:14px;line-height:1.6;}
+  .maturity-block .sub b{color:var(--navy);}
+  .scale-legend{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
+  .scale-legend .step{
+    flex:1 1 120px;background:#f7fafc;border:1px solid var(--border);border-radius:8px;
+    padding:8px 10px;font-size:11.5px;color:var(--muted);line-height:1.4;
+  }
+  /* the level you are at overall — the only orange in this block */
+  .scale-legend .step.current{border-color:var(--amber);background:var(--gold-tint);}
+  .scale-legend .step b{display:block;color:var(--navy);font-size:12.5px;margin-bottom:2px;}
+  .mat-row{
+    display:flex;gap:14px;align-items:flex-start;
+    border:1.5px solid var(--border);border-radius:10px;background:#fff;
+    padding:14px 16px;margin-bottom:10px;
+  }
+  .mat-row.low{border-color:var(--red-border);background:var(--red-tint);}
+  .mat-row.mid{border-color:var(--grey-border);background:var(--grey-tint);}
+  .mat-row.high{border-color:var(--green-border);background:var(--green-tint);}
+  .mat-badge{
+    flex:0 0 46px;height:46px;border-radius:10px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;font-weight:800;line-height:1;
+    background:#eaf9fb;color:var(--teal-dark);
+  }
+  .mat-row.low .mat-badge{background:#fbe9e9;color:var(--red-text);}
+  .mat-row.mid .mat-badge{background:#e8edf4;color:var(--muted);}
+  .mat-row.high .mat-badge{background:#e4f5eb;color:var(--green-text);}
+  .mat-badge .n{font-size:19px;}
+  .mat-badge .l{font-size:8.5px;font-weight:700;letter-spacing:.06em;margin-top:3px;}
+  .mat-main{flex:1;min-width:0;}
+  .mat-head{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap;}
+  .mat-name{font-size:14.5px;font-weight:700;}
+  .mat-level{font-size:12.5px;font-weight:700;color:var(--teal-dark);white-space:nowrap;}
+  .mat-row.low .mat-level{color:var(--red-text);}
+  .mat-row.mid .mat-level{color:var(--muted);}
+  .mat-row.high .mat-level{color:var(--green-text);}
+  .mat-desc{font-size:13.5px;color:var(--muted);line-height:1.6;margin-top:6px;}
+  .mat-gap{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.55;}
+  .mat-gap b{color:var(--navy);}
+  @media (max-width:600px){
+    .mat-row{padding:12px;gap:10px;}
+    .scale-legend .step{flex:1 1 100%;}
+  }
+
+  .meaning-card{background:#f7fafc;border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin-bottom:22px;}
+  .meaning-card h3{font-size:15px;margin:0 0 8px;}
+  .meaning-card p{font-size:14px;color:var(--muted);margin:0 0 10px;line-height:1.6;}
+  .meaning-card p:last-child{margin-bottom:0;}
+  .meaning-card b{color:var(--navy);}
+
+  /* next steps for the respondent's own phase */
+  .next-steps{
+    background:#fff;border:1.5px solid #15385E;border-radius:12px;
+    padding:22px 24px;margin-bottom:22px;
+  }
+  .next-steps h3{font-size:17px;margin:0 0 18px;}
+  .next-steps .sub{font-size:13.5px;color:var(--muted);margin-bottom:14px;line-height:1.6;}
+  .next-steps ol{margin:0 0 18px;padding-left:20px;font-size:14px;color:var(--muted);line-height:1.7;}
+  .next-steps ol li{margin-bottom:10px;}
+  .next-steps ol li b{color:var(--navy);}
+  .next-steps ol li::marker{color:var(--teal-dark);font-weight:700;}
+  @media (max-width:600px){
+    .next-steps{padding:18px 16px;}
+    .next-steps button{width:100%;}
+  }
+
+  .toast{font-size:13px;color:var(--navy);font-weight:700;margin-top:8px;display:none;}
+  .toast.err{color:#c23b3b;font-weight:400;line-height:1.5;}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top-meta">
+    <span id="topLeft">Strategy &amp; Governance · Section 1 of 5</span>
+    <span id="topRight">0%</span>
+  </div>
+  <div class="progress-track">
+    <div class="progress-fill" id="progressFill" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Assessment progress"></div>
+  </div>
+
+  <div class="card">
+
+    <!-- INTRO (first section only) -->
+    <div id="introBlock" style="display:none;">
+      <div class="eyebrow">Data &amp; AI Readiness Assessment</div>
+      <h1>The Asset Management AI Maturity Scan</h1>
+      <div class="lede">How ready is your organization to put data and AI to work on your assets?</div>
+      <div class="sr-only">16 statements across 5 dimensions, answered on a 5-point agreement scale.</div>
+      <div class="pill-row">
+        <span class="pill">16 statements</span>
+        <span class="pill">Instant results</span>
+      </div>
+      <div class="intro-note">
+        Answer for the organization or site you actually work in, not for the ideal situation.
+        Your best impression is enough; there are no right or wrong answers, and nobody sees your
+        individual answers. Your scores are combined with those of other participants into an
+        anonymous industry benchmark; no individual result is ever shown to anyone else.
+      </div>
+    </div>
+
+    <!-- QUESTION STEP -->
+    <div id="questionStep">
+      <h2 class="element-title" id="elTitle"></h2>
+      <div class="element-intro" id="elIntro"></div>
+      <div class="prompt-label">How much do you agree with these statements about your organization?</div>
+      <form id="statementsList" onsubmit="return false;"></form>
+      <div class="error-msg" id="errorMsg" role="alert"></div>
+      <div class="nav-row">
+        <button class="btn-ghost" id="backBtn" type="button">Back</button>
+        <button class="btn-primary" id="nextBtn" type="button">Next</button>
+      </div>
+    </div>
+
+    <!-- LEAD CAPTURE STEP -->
+    <div id="leadStep" style="display:none;">
+      <div class="eyebrow">Your results are ready</div>
+      <h1>See which of the 5 levels your organization is in</h1>
+      <div class="lede">Enter your details to unlock your overall level, your maturity level on all five dimensions, and the next steps that fit where you are now.</div>
+      <div class="lead-fields">
+        <label for="leadName">Name</label>
+        <input type="text" id="leadName" placeholder="Your name" autocomplete="name">
+        <p class="field-error" id="nameError">Please enter your name.</p>
+        <label for="leadEmail">Business email</label>
+        <input type="email" id="leadEmail" placeholder="you@company.com" autocomplete="email">
+        <p class="field-error" id="emailError">Please enter a valid business email address.</p>
+        <label for="leadRole">Your role</label>
+        <select id="leadRole">
+          <option value="" disabled selected>Select your role</option>
+          <option value="asset_manager">Asset Manager</option>
+          <option value="maintenance_reliability">Maintenance / Reliability Engineer</option>
+          <option value="operations">Operations Manager</option>
+          <option value="management">Management / Director</option>
+          <option value="executive">Executive / C-level</option>
+          <option value="data_it">Data / IT Specialist</option>
+          <option value="other">Other</option>
+        </select>
+        <p class="field-error" id="roleError">Please select your role.</p>
+        <label for="leadIndustry">Industry</label>
+        <select id="leadIndustry">
+          <option value="" disabled selected>Select your industry</option>
+          <option value="oil_gas">Oil &amp; Gas</option>
+          <option value="manufacturing">Manufacturing</option>
+          <option value="utilities_electric">Utilities – Electric</option>
+          <option value="utilities_gas">Utilities – Gas</option>
+          <option value="utilities_water">Utilities – Water</option>
+          <option value="renewables">Renewables</option>
+          <option value="mining">Mining</option>
+          <option value="transport_infra">Transportation / Infrastructure</option>
+          <option value="other">Other</option>
+        </select>
+        <p class="field-error" id="industryError">Please select your industry.</p>
+      </div>
+      <div class="nav-row">
+        <button class="btn-ghost" id="leadBackBtn" type="button">Back</button>
+        <button class="btn-primary" id="leadNextBtn" type="button">Show my results</button>
+      </div>
+      <!-- Privacy notice: names exactly what is collected (name, business
+           email, role, industry, and the scores), why, and where it is kept. -->
+      <div class="fine-print">
+        <b>How we handle your data.</b> We collect your name, business email address, role and industry,
+        together with your answers. We use them to send you your results and to build the anonymous
+        industry benchmark.
+        Your data is stored securely in a database hosted in the EU, with access restricted to
+        OHROS Group. Nobody sees your individual answers: only aggregated, anonymous scores are used
+        in the benchmark. We never sell or share your details with third parties.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RESULTS DASHBOARD -->
+  <div id="resultView">
+    <div class="dash-header">
+      <div>
+        <h1>Your Asset Management AI Readiness Dashboard</h1>
+        <div class="dash-sub">Based on your answers across the five dimensions of data and AI readiness in asset management.</div>
+      </div>
+      <div class="dash-actions no-pdf">
+        <div class="action-row">
+          <button class="btn-primary" id="emailBtn" type="button">Email me the PDF</button>
+          <button class="btn-share" id="downloadBtn" type="button">Download PDF</button>
+        </div>
+        <div class="toast" id="pdfToast"></div>
+      </div>
+    </div>
+
+    <div class="phase-hero">
+      <div class="phase-hero-top">
+        <div class="phase-hero-copy">
+          <div class="phase-eyebrow">Your overall level of asset management AI adoption</div>
+          <h2 id="phaseTitleBig"></h2>
+          <p id="phaseDescBig"></p>
+        </div>
+        <div class="gauge-wrap">
+          <svg class="gauge-svg" viewBox="0 0 200 112" role="img" aria-labelledby="gaugeLabel">
+            <title id="gaugeLabel">Overall readiness gauge</title>
+            <path class="gauge-arc-bg" d="M 19 101 A 81 81 0 0 1 181 101"
+                  fill="none" stroke-width="18" stroke-linecap="round"/>
+            <path class="gauge-arc-fg" id="gaugeArc" d="M 19 101 A 81 81 0 0 1 181 101"
+                  fill="none" stroke-width="18" stroke-linecap="round"
+                  stroke-dasharray="255" stroke-dashoffset="255"/>
+            <text x="100" y="98" text-anchor="middle" class="gauge-pct">
+              <tspan id="gaugePctText">0</tspan><tspan class="unit">%</tspan>
+            </text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="phase-track" id="phaseTrack"></div>
+      <div class="phase-track-labels" id="phaseTrackLabels"></div>
+
+      <div class="element-bars" id="elementBars"></div>
+      <div class="bars-footnote" id="barsFootnote"></div>
+    </div>
+
+    <div class="meaning-card">
+      <h3>What your scores mean</h3>
+      <p id="meaningText"></p>
+      <p id="scaleNote" style="font-size:12.5px;"></p>
+    </div>
+
+    <!-- MATURITY LEVEL PER DIMENSION -->
+    <div class="maturity-block">
+      <h3>Your maturity level per dimension</h3>
+      <div class="sub">
+        Each dimension is reported on a five-level scale, from Awareness to Transformational.
+        Where you sit differs per dimension, and the lowest one usually tells you the most.
+      </div>
+      <div class="scale-legend" id="scaleLegend"></div>
+      <div id="maturityList"></div>
+    </div>
+
+    <!-- NEXT STEPS FOR THE RESPONDENT'S OWN PHASE -->
+    <div class="next-steps" id="nextStepsBlock">
+      <h3 id="nextStepsTitle">Your next step per dimension</h3>
+      <ol id="nextStepsList"></ol>
+      <button class="btn-primary" id="phaseCta" type="button"></button>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+   SUPABASE CONFIG
+   Project Settings -> API in the Supabase dashboard.
+   Never put the "service_role" key here.
+
+   The database side lives in migration-self-assessment-tool.sql —
+   run that BEFORE deploying this page, otherwise every submission is
+   rejected on a missing column.
+
+   Two things that file sets up and this page depends on:
+
+     * the five per-dimension score columns, plus score_pct, public_id
+       and results_mailed_at;
+     * the view "submission_scores", which exposes the score columns
+       and nothing else. The page reads that view, never the table, so
+       names and email addresses stay out of the browser. The view runs
+       with its owner's rights and shows only rows that carry the
+       current five dimensions, which keeps answers from the earlier
+       questionnaire out of the averages.
+   ============================================================ */
+const SUPABASE_URL = "https://siqmwdxxdhdbwfwsxerl.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_YqXauT5rUcctxEIUKz7gXQ_LgGk_yIY";
+/* Guarded on purpose: if the Supabase CDN script is blocked (ad blocker,
+   corporate proxy, offline preview) window.supabase is undefined. Without
+   this guard the whole script would throw and the assessment would not
+   render at all. */
+const supabaseClient =
+  (window.supabase && window.supabase.createClient && !SUPABASE_URL.includes("YOUR-PROJECT-REF"))
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
+/* Minimum number of stored submissions before a figure is shown at all.
+   Both are 1 on purpose: every average, share and percentile on the
+   dashboard is counted from real submissions, however few, and there is
+   no estimated fallback anywhere. A respondent's own answers are stored
+   before the dashboard reads them back, so in practice there is always
+   at least one. Raise these if you would rather withhold the comparison
+   until a larger sample exists. */
+const MIN_SAMPLE = 1;           // dimension averages (the dotted line + deltas)
+const MAX_ROWS = 5000;          // cap on rows pulled for the statistics
+
+/* The score-only view the dashboard reads. It exposes no names or
+   email addresses, and it filters out answers from the earlier
+   questionnaire, which used different dimensions. */
+const SCORES_VIEW = "submission_scores";
+
+/* ============================================================
+   EMAILING THE RESULTS
+   The browser cannot send mail, so the PDF is built here and posted
+   to a Supabase Edge Function ("email-results", source in
+   edge-function-email-results.ts) which sends it through Resend.
+
+   The recipient is deliberately NOT sent from the browser: the
+   function looks up the email address stored with this submission.
+   Since the anon key is public, anyone could otherwise call the
+   endpoint and have it mail an arbitrary address.
+
+   public_id is generated here and written with the submission, so
+   the function can find the row without the browser needing read
+   access to the submissions table.
+   ============================================================ */
+const EMAIL_ENDPOINT = SUPABASE_URL + "/functions/v1/email-results";
+let submissionPublicId = null;
+let emailSent = false;
+
+function newPublicId(){
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  // Fallback for older browsers: RFC-4122-shaped id from getRandomValues.
+  const b = new Uint8Array(16);
+  (window.crypto || {}).getRandomValues
+    ? crypto.getRandomValues(b)
+    : b.forEach((_, i) => b[i] = Math.floor(Math.random() * 256));
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+
+const SCALE = ["Strongly disagree","Disagree","Neutral","Agree","Strongly agree"];
+
+/* ============================================================
+   CONTENT — the question set: 5 dimensions, 16 statements,
+   distributed 3 / 3 / 4 / 3 / 3. The counts are deliberately
+   uneven, so nothing in the scoring may assume a fixed number of
+   statements per dimension: every calculation below derives the
+   count from statements.length.
+
+   Statements, definitions, C-level framing and results-page
+   insights come from the Self Assessment Tool question set,
+   aligned to OHROS's ITAMS framework and the GFMAM subject
+   groups underpinning ISO 55001.
+
+   The "insight" text is shown on the RESULTS page only, so it
+   cannot nudge answers while people are still answering.
+   ============================================================ */
+const ELEMENTS = [
+  {
+    key: "strategyvalue", label: "Strategy & Value", short: "Strategy",
+    col: "strategyvalue_score",
+    intro: "Whether data and AI investment is prioritized against business value, aligned across leadership, and tracked for actual return.",
+    insight: "A strategy without an owner, a budget, and a tracked return behaves exactly like no strategy at all.",
+    statements: [
+      "We prioritize data and AI initiatives against a clear view of business values, such as cost, uptime, risk, and capital efficiency.",
+      "Our senior leadership team is aligned on a single vision and roadmap for data and AI, not competing priorities across functions.",
+      "Our data and AI roadmap has a business case, dedicated budget, and its return is tracked after go-live."
+    ],
+    levels: [
+      "AI/data initiatives are chosen by technical interest or vendor pitch; no shared roadmap or business case exists.",
+      "A rough rationale exists for some initiatives, but prioritization is inconsistent and funding is pilot-only.",
+      "A shared roadmap exists, leadership is broadly aligned, and material initiatives carry a business case.",
+      "Prioritization is systematically value-based across the portfolio; returns are tracked post go-live for most initiatives.",
+      "Value governance rivals other capital allocation processes; ROI tracking actively shapes portfolio decisions."
+    ],
+    nextSteps: [
+      "Get leadership aligned on the value it wants from data and AI (cost, downtime, risk, capital) and give each running initiative a clear owner.",
+      "Bring operations, maintenance and finance together on one roadmap, prioritize initiatives by value and effort, and require a business case for each one.",
+      "Track the return on investment of every initiative after go-live against the value criteria defined.",
+      "Review data and AI investments yearly alongside the asset investment plan, learn from what was delivered and reallocate to where the value is highest."
+    ]
+  },
+  {
+    key: "operatingmodel", label: "Operating Model & Governance", short: "Operating Model",
+    col: "operatingmodel_score",
+    intro: "Whether it is clear who owns AI/data initiatives, who is accountable for acting on AI-generated recommendations, and what rules govern AI use.",
+    insight: "Unclear rules don't stop people using AI, they just move it out of sight, where nobody can check it.",
+    statements: [
+      "It is clear who owns our data and AI initiatives, and who is accountable for deciding whether to act on an AI-generated recommendation.",
+      "We know which rules govern our use of AI, such as privacy, security, safety, and AI legislation and our governance reflects them.",
+      "It is clear which information may and may not be entered into AI tools, and this is enforced through our systems and access controls, not just a policy document."
+    ],
+    levels: [
+      "No clear ownership of data/AI initiatives; no defined AI-use rules; decisions on AI output are informal or contested.",
+      "Ownership assigned for a few initiatives; awareness of relevant AI/data rules is emerging, not systematic.",
+      "Ownership and accountability are defined organization-wide; core AI/data rules are documented and generally followed.",
+      "Decision rights and data-use rules are enforced through system controls, not just policy; governance scales across units.",
+      "Governance is proactive and adaptive, regulatory change is anticipated; AI decision rights are a trusted, auditable part of how the business runs."
+    ],
+    nextSteps: [
+      "Name an owner for each data and AI initiative and list the rules that apply to your AI use: privacy, security, safety and relevant AI legislation.",
+      "Define organization-wide who owns asset data and who may act on an AI recommendation, and document the core AI-use rules for everyone who works with AI.",
+      "Enforce the rules through systems: access controls on asset and operational data, approved AI tools and logging of AI-supported decisions.",
+      "Anticipate regulatory change, audit AI decision rights on critical assets periodically and make the results visible to the board."
+    ]
+  },
+  {
+    key: "processdecision", label: "Process & Decision Aid", short: "Decision Aid",
+    col: "processdecision_score",
+    intro: "The extent to which AI and analytics genuinely change operational and financial decisions such as, maintenance, capital investment, workforce deployment, regulatory compliance, and whether the value delivered is measured.",
+    insight: "Predictive tools only create value once they change what people decide, not just what they watch. Workforce deployment and regulatory cost are often the bigger, faster-to-quantify line items and the ones a CFO will ask you to defend.",
+    statements: [
+      "We use AI-based predictive models to identify when our assets are likely to fail or need attention.",
+      "We use AI input and risk analysis as a formal part of how we make investment decisions.",
+      "We use AI or analytics to optimize both field workforce deployment (crew scheduling, skills matching) and regulatory/compliance workload (environmental reporting, safety, rate cases), not just asset condition.",
+      "We can quantify the financial return of these AI and analytics use cases such as, reduced downtime, avoided penalties, lower cost-to-serve, not just describe them as “in use.”"
+    ],
+    levels: [
+      "Decisions rest mainly on experience and fixed schedules; data is used for reporting at most, and AI plays no role.",
+      "Descriptive analytics inform some decisions (costs, performance, condition) and a first predictive pilot exists, but it does not yet change what is decided.",
+      "Risk-based decision models and predictive insight inform maintenance and investment decisions in at least one core process.",
+      "Asset risk is predicted across asset types; AI models drive investment and workforce decisions, with return quantified for major use cases.",
+      "AI models run at scale across the asset base; AI supports corporate and field operations; planning is prescriptive, optimized on risk and total expenditure."
+    ],
+    nextSteps: [
+      "Assess where AI can make the biggest difference to your asset decisions for the least effort, and start one pilot there.",
+      "Embed a pilot into core processes: let its output inform asset investment decisions, and record what changed because of it.",
+      "Expand what works across asset types and processes, moving to AI and risk-based predictions of what to replace, maintain and inspect, and quantify the return.",
+      "Embed AI across maintenance, capital, workforce and compliance, and run a continuous cycle of tracking value and reinvesting it."
+    ]
+  },
+  {
+    key: "peopleskills", label: "People & Skills", short: "People",
+    col: "peopleskills_score",
+    intro: "Whether the organization is building the specific future skills this requires through structured, role-specific training, whether leadership is genuinely driving adoption, and whether critical technical knowledge is being captured before it retires with its owners.",
+    insight: "Adoption stalls on leadership attention and protected training time, not technology — and the clock on tacit knowledge is running whether you plan for it or not.",
+    statements: [
+      "Leadership across the business actively drives and resources data and AI adoption.",
+      "We know which skills our workforce will need over the next 2–3 years (data literacy, AI-assisted engineering judgment, etc.) and run structured, role-specific training to build them, for engineers and field staff, not only technical teams.",
+      "We have an active plan to capture the tacit knowledge of our most experienced technical people before they retire, including using AI tools to do it."
+    ],
+    levels: [
+      "Skills-building is informal; no view of future needs; leadership involvement is limited to IT.",
+      "Some training exists but is generic; future-skills needs are not mapped to specific roles.",
+      "Leadership actively supports adoption; role-specific training plans exist for priority skills.",
+      "Structured reskilling reaches engineers and field staff broadly; a strategic workforce plan exists to capture new skills and retiring experts' knowledge.",
+      "Skills strategy is continuously refreshed against emerging AI capability; succession and knowledge capture are systematic."
+    ],
+    nextSteps: [
+      "Find a business sponsor for AI adoption, let people experiment safely with AI tools to build momentum, and map which roles need which data and AI skills.",
+      "Turn the skills map into role-specific training for engineers and field staff, not only the data team, with leaders visibly driving adoption in their own area.",
+      "Scale structured reskilling across the organization and capture the knowledge of experienced people before they retire.",
+      "Refresh the skills strategy yearly against new AI capability, plan the competence gap five to ten years out, and hire and develop accordingly."
+    ]
+  },
+  {
+    key: "datatech", label: "Data & Technology", short: "Data & Tech",
+    col: "datatech_score",
+    intro: "Whether the asset data underneath AI, such as sensor feeds, maintenance history, asset naming and taxonomy, is complete, consistent, and connected enough across systems to be trusted for real decisions. You can't build a reliable return on an unreliable foundation.",
+    insight: "This is where most organizations turn out weaker than they expected. Maintenance history is usually the weak link, not sensors.",
+    statements: [
+      "Data from our equipment and sensors arrives automatically in the systems we work in.",
+      "Our maintenance history such as, notifications, work orders, failures, is of enough quality to learn from.",
+      "The same asset is named and categorized the same way in every system we use."
+    ],
+    levels: [
+      "Data quality, granularity, and system integration remain limited, undermining confidence in data-driven decisions.",
+      "Some automated data flows exist; maintenance history is inconsistent; taxonomy alignment is partial.",
+      "Sensor data flows automatically for most assets; maintenance history is generally usable; a common taxonomy exists across core systems.",
+      "Data is trusted enough to underpin predictive models at scale; taxonomy and history are consistently maintained.",
+      "Data infrastructure is a competitive asset, it is real-time, complete, and consistent enough to support near-autonomous decisions."
+    ],
+    nextSteps: [
+      "Start with the data you rely on most: raise its quality and granularity in a few targeted improvements and connect it to the systems people actually work in.",
+      "Introduce one asset taxonomy and data dictionary across systems, so information is traceable and good enough to trust for critical decisions.",
+      "Bring asset data together in one single source of truth, and start adding external and unstructured data such as inspection reports and sensor streams.",
+      "Move to one central data model that covers the whole asset lifecycle, from design and build to operate, maintain and replace."
+    ]
+  }
+];
+
+/* The dimension whose score caps the reported phase: AI cannot be
+   more reliable than the data underneath it. */
+const FOUNDATION_KEY = "datatech";
+
+/* ============================================================
+   MATURITY SCALE (Gartner-derived, five levels)
+   Each dimension's normalized 0-100% score maps to one of five
+   levels through fixed bands. The bands are centred so that a
+   dimension answered entirely "neutral" (50%) lands exactly on
+   Level 3 "Operational", the middle of the scale.
+     0-12%  -> 1 Awareness        (all "strongly disagree" = 0%)
+    13-37%  -> 2 Active           (all "disagree"          = 25%)
+    38-62%  -> 3 Operational      (all "neutral"           = 50%)
+    63-87%  -> 4 Systemic         (all "agree"             = 75%)
+    88-100% -> 5 Transformational (all "strongly agree"    = 100%)
+   ============================================================ */
+const MATURITY = [
+  { level:1, label:"Awareness",        meaning:"Ad hoc, no shared direction",      max:12  },
+  { level:2, label:"Active",           meaning:"Early, uneven experimentation",    max:37  },
+  { level:3, label:"Operational",      meaning:"Defined and working",              max:62  },
+  { level:4, label:"Systemic",         meaning:"Embedded and scaled",              max:87  },
+  { level:5, label:"Transformational", meaning:"A competitive differentiator",     max:100 }
+];
+
+function maturityFor(pct){
+  const i = MATURITY.findIndex(m => pct <= m.max);
+  return MATURITY[i < 0 ? MATURITY.length - 1 : i];
+}
+
+/* ============================================================
+   PHASES — five, matching the five maturity levels exactly.
+   The ranges are the MATURITY bands above, so the overall phase
+   and the per-dimension level always speak the same language:
+   an organization in Level 3 is at maturity level 3 overall.
+   Keep PHASES[i].range in step with MATURITY[i].max if you ever
+   retune the bands.
+   ============================================================ */
+const PHASES = [
+  {
+    key:"awareness", range:[0,12], title:"Level 1: Awareness",
+    desc:"Ad hoc, with no shared direction. Asset data exists, but it is scattered, inconsistent, and rarely trusted for decisions. AI use, if any, is exploratory and disconnected from how work actually gets done.",
+    steps:[
+      "Pick one asset group and agree what data must be correct about it, and who owns that.",
+      "Set one clear ground rule for what may and may not be put into AI tools, so people stop guessing.",
+      "Choose one recurring decision, such as maintenance planning, and start recording the data behind it consistently."
+    ],
+    cta:"Contact me"
+  },
+  {
+    key:"active", range:[13,37], title:"Level 2: Active",
+    desc:"Early and uneven experimentation. Pilots and initiatives exist, but they are prioritized inconsistently, funded project by project, and the data foundation underneath is not yet reliable enough to build on.",
+    steps:[
+      "Make data ownership real in practice, not just on paper.",
+      "Standardize how assets are named and how work is recorded, so data can be combined across systems.",
+      "Put a business case behind each material initiative, so funding stops depending on who asks loudest.",
+      "Put your AI ground rules in writing, including who signs off on AI-supported decisions."
+    ],
+    cta:"Contact me"
+  },
+  {
+    key:"operational", range:[38,62], title:"Level 3: Operational",
+    desc:"Defined and working. Ownership is clear, core rules are followed, and predictive insight informs maintenance and investment decisions in at least one core process.",
+    steps:[
+      "Extend predictive models to more asset types or failure modes.",
+      "Quantify the return — downtime avoided, penalties avoided, cost-to-serve — so investment keeps flowing.",
+      "Take decision aid beyond asset condition, into workforce deployment and regulatory workload.",
+      "Tighten data quality checks and model monitoring before scaling further."
+    ],
+    cta:"Contact me"
+  },
+  {
+    key:"systemic", range:[63,87], title:"Level 4: Systemic",
+    desc:"Embedded and scaled. Decision rights and data-use rules are enforced through systems rather than policy documents, returns are tracked across the portfolio, and reskilling reaches engineers and field staff broadly.",
+    steps:[
+      "Expand automation one use case at a time, with explicit human checkpoints.",
+      "Audit AI recommendations regularly to catch model drift and blind spots.",
+      "Close the knowledge gap deliberately: capture what your most experienced people know before they retire."
+    ],
+    cta:"Contact me"
+  },
+  {
+    key:"transformational", range:[88,100], title:"Level 5: Transformational",
+    desc:"A competitive differentiator. Your data infrastructure is complete and consistent enough to support near-autonomous decisions, value governance rivals your other capital allocation processes, and regulatory change is anticipated rather than absorbed.",
+    steps:[
+      "Let AI take on more monitoring and recommending, with people on the decisions that carry the most risk.",
+      "Feed tracked returns back into portfolio decisions, so value governance keeps shaping where money goes.",
+      "Use the capacity freed up for strategy, resilience, and long-term asset value."
+    ],
+    cta:"Contact me"
+  }
+];
+
+/* There is deliberately NO estimated benchmark in this build. Every
+   average, share and comparison on the dashboard is counted from stored
+   submissions — one is enough, since a respondent's own answers are
+   written before the dashboard reads them back. When nothing can be
+   read (Supabase unreachable, or the very first scan failing to save),
+   the comparison is left out entirely rather than filled with a guess. */
+
+/* ============================================================
+   SCORING
+   Every statement scores 1-5, so the lowest possible raw total is
+   N (all "strongly disagree"), not 0. Dividing the raw total by the
+   maximum would therefore start everyone at 20% and push a fully
+   neutral respondent to 60% — landing them in Level 3.
+   We normalize against the ACHIEVABLE range instead:
+
+       pct = (raw - min) / (max - min) * 100
+
+   Calibration check (16 statements, raw range 16-80):
+     all "strongly disagree" ->   0%  -> Level 1
+     all "disagree"          ->  25%  -> Level 1
+     all "neutral"           ->  50%  -> Level 2
+     all "agree"             ->  75%  -> Level 3
+     all "strongly agree"    -> 100%  -> Level 4
+
+   Because the formula normalizes against each dimension's OWN
+   achievable range, the 4-statement dimension (Process & Decision
+   Aid, raw 4-20) weighs exactly the same as a 3-statement one
+   (raw 3-15) when its percentage is shown or compared. The OVERALL
+   score is the unweighted total over all 16 statements, so Process
+   & Decision Aid does carry 4/16 of the total rather than 3/15 —
+   that is intentional: it is the dimension with the most distinct
+   decisions to cover.
+
+   Level 4 starts at 85% (raw 70.4/80, i.e. an average of 4.4) on
+   purpose: "autonomous" should be genuinely rare. Tune the phase
+   ranges above once you have real distribution data.
+   ============================================================ */
+function normalizePct(raw, count){
+  const min = count * 1;
+  const max = count * 5;
+  return ((raw - min) / (max - min)) * 100;
+}
+function elementRaw(idx){
+  return answers[idx].reduce((a,b) => a + (b || 0), 0);
+}
+function elementCount(idx){
+  return ELEMENTS[idx].statements.length;
+}
+function elementPct(idx){
+  return normalizePct(elementRaw(idx), elementCount(idx));
+}
+function totalRaw(){
+  return answers.reduce((sum, _, i) => sum + elementRaw(i), 0);
+}
+function totalCount(){
+  return ELEMENTS.reduce((sum, el) => sum + el.statements.length, 0);
+}
+function totalPct(){
+  return normalizePct(totalRaw(), totalCount());
+}
+
+/* ============================================================
+   STATE
+   ============================================================ */
+let current = 0;
+let answers = ELEMENTS.map(el => new Array(el.statements.length).fill(null));
+let leadInfo = { name:"", email:"", role:"", industry:"" };
+
+const introBlock = document.getElementById('introBlock');
+const questionStep = document.getElementById('questionStep');
+const leadStep = document.getElementById('leadStep');
+const resultView = document.getElementById('resultView');
+const card = document.querySelector('.card');
+
+const elTitle = document.getElementById('elTitle');
+const elIntro = document.getElementById('elIntro');
+const statementsList = document.getElementById('statementsList');
+const errorMsg = document.getElementById('errorMsg');
+const backBtn = document.getElementById('backBtn');
+const nextBtn = document.getElementById('nextBtn');
+const topLeft = document.getElementById('topLeft');
+const topRight = document.getElementById('topRight');
+const progressFill = document.getElementById('progressFill');
+
+/* Progress reflects statements actually answered, plus the final
+   details step, so the bar moves on every click and never claims
+   more (or less) progress than there really is. */
+function answeredCount(){
+  return answers.flat().filter(v => v !== null).length;
+}
+function updateProgress(onLeadStep){
+  const steps = totalCount() + 1; // 15 statements + details step
+  const done = onLeadStep ? totalCount() : answeredCount();
+  const pct = Math.round((done / steps) * 100);
+  topRight.textContent = pct + "%";
+  progressFill.style.width = pct + "%";
+  progressFill.setAttribute('aria-valuenow', pct);
+  if (onLeadStep){
+    topLeft.textContent = "Last step · unlock your results";
+  } else {
+    const el = ELEMENTS[current];
+    topLeft.textContent = `${el.label} · Section ${current+1} of ${ELEMENTS.length}`;
+  }
+}
+
+function renderQuestion(){
+  introBlock.style.display = current === 0 ? 'block' : 'none';
+  const el = ELEMENTS[current];
+
+  elTitle.textContent = el.label;
+  elIntro.textContent = el.intro;
+
+  statementsList.innerHTML = "";
+  el.statements.forEach((stmt, sIdx) => {
+    const box = document.createElement('div');
+    box.className = 'statement';
+    box.dataset.idx = sIdx;
+
+    const fs = document.createElement('fieldset');
+    box.appendChild(fs);
+
+    const legend = document.createElement('legend');
+    legend.textContent = `${sIdx+1}. ${stmt}`;
+    fs.appendChild(legend);
+
+    const likert = document.createElement('div');
+    likert.className = 'likert';
+    SCALE.forEach((label, i) => {
+      const val = i + 1;
+      const id = `q${current}_${sIdx}_${val}`;
+      const lab = document.createElement('label');
+      lab.setAttribute('for', id);
+      lab.innerHTML =
+        `<input type="radio" id="${id}" name="q${current}_${sIdx}" value="${val}"` +
+        `${answers[current][sIdx] === val ? ' checked' : ''}>` +
+        `<span class="dot" data-v="${val}" aria-hidden="true"></span>` +
+        `<span class="txt">${label}</span>`;
+      lab.querySelector('input').addEventListener('change', () => {
+        answers[current][sIdx] = val;
+        box.classList.remove('unanswered');
+        errorMsg.style.display = 'none';
+        updateProgress(false);
+      });
+      likert.appendChild(lab);
+    });
+    fs.appendChild(likert);
+
+    // Visible only on small screens, where the per-option labels are
+    // replaced by numbers.
+    const anchors = document.createElement('div');
+    anchors.className = 'likert-anchors';
+    anchors.setAttribute('aria-hidden','true');
+    anchors.innerHTML = `<span>1 · ${SCALE[0]}</span><span>${SCALE[4]} · 5</span>`;
+    fs.appendChild(anchors);
+
+    statementsList.appendChild(box);
+  });
+
+  errorMsg.style.display = 'none';
+  backBtn.classList.toggle('hidden', current === 0);
+  nextBtn.textContent = current === ELEMENTS.length - 1 ? "See my results" : "Next";
+  updateProgress(false);
+}
+
+nextBtn.onclick = () => {
+  const missing = answers[current]
+    .map((a, i) => a === null ? i : -1)
+    .filter(i => i >= 0);
+  if (missing.length){
+    statementsList.querySelectorAll('.statement').forEach(fs => {
+      fs.classList.toggle('unanswered', missing.includes(Number(fs.dataset.idx)));
+    });
+    errorMsg.textContent = missing.length === 1
+      ? `Please answer statement ${missing[0]+1} before continuing.`
+      : `Please answer all ${answers[current].length} statements before continuing.`;
+    errorMsg.style.display = 'block';
+    const first = statementsList.querySelector('.statement.unanswered');
+    if (first) first.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  if (current < ELEMENTS.length - 1){
+    current++;
+    renderQuestion();
+    window.scrollTo({top:0, behavior:'smooth'});
+  } else {
+    showLeadStep();
+  }
+};
+
+backBtn.onclick = () => {
+  if (current > 0){
+    current--;
+    renderQuestion();
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+};
+
+function showLeadStep(){
+  questionStep.style.display = 'none';
+  introBlock.style.display = 'none';
+  leadStep.style.display = 'block';
+  updateProgress(true);
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+document.getElementById('leadBackBtn').onclick = () => {
+  leadStep.style.display = 'none';
+  questionStep.style.display = 'block';
+  renderQuestion();
+};
+
+function setFieldError(inputId, errorId, show){
+  document.getElementById(inputId).classList.toggle('invalid', show);
+  document.getElementById(errorId).style.display = show ? 'block' : 'none';
+}
+
+document.getElementById('leadNextBtn').onclick = async () => {
+  const name = document.getElementById('leadName').value.trim();
+  const email = document.getElementById('leadEmail').value.trim();
+  const role = document.getElementById('leadRole').value;
+  const industry = document.getElementById('leadIndustry').value;
+
+  const nameOk = name.length >= 2;
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+  setFieldError('leadName','nameError', !nameOk);
+  setFieldError('leadEmail','emailError', !emailOk);
+  setFieldError('leadRole','roleError', !role);
+  setFieldError('leadIndustry','industryError', !industry);
+  if (!nameOk || !emailOk || !role || !industry){
+    document.querySelector('.field-error[style*="block"]')
+      ?.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+
+  leadInfo = { name, email, role, industry };
+
+  const btn = document.getElementById('leadNextBtn');
+  btn.disabled = true;
+  btn.textContent = "Loading…";
+
+  try {
+    await withTimeout(submitLead(leadInfo), 6000, "submitLead");
+    await withTimeout(showResults(), 6000, "showResults");
+  } catch (err){
+    console.error("Something went wrong while saving or showing results:", err);
+    btn.disabled = false;
+    btn.textContent = "Show my results";
+    try { await showResults(); } catch(e2){ console.error(e2); }
+  }
+};
+
+function withTimeout(promise, ms, label){
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout: ${label} took longer than ${ms}ms`)), ms))
+  ]);
+}
+
+async function submitLead(info){
+  /* Column names come from ELEMENTS[].col, so adding, removing or
+     reordering a dimension never silently writes a score into the
+     wrong column. */
+  submissionPublicId = newPublicId();
+  const row = {
+    name: info.name,
+    email: info.email,
+    role: info.role,
+    industry: info.industry,
+    total_score: totalRaw(),
+    score_pct: Math.round(totalPct()),
+    public_id: submissionPublicId
+  };
+  ELEMENTS.forEach((el, i) => { row[el.col] = elementRaw(i); });
+
+  if (!supabaseClient){
+    console.log("Supabase not configured — submission (demo):", row);
+    submissionPublicId = null;      // nothing stored: nothing to mail
+    return;
+  }
+
+  try {
+    const { error } = await supabaseClient.from('submissions').insert(row);
+    if (error){
+      /* The mail function finds the recipient by public_id, so an
+         unsaved row cannot be mailed. Clearing the id here is what makes
+         the dashboard say so instead of failing later with a 404. A
+         missing column (migration not run) shows up exactly here. */
+      submissionPublicId = null;
+      console.error(
+        "Could not save submission to Supabase — code: " + error.code +
+        " | message: " + error.message +
+        " | details: " + error.details +
+        " | hint: " + error.hint
+      );
+      // Deliberately no throw: a failed save must never block the results.
+    }
+  } catch (e){
+    submissionPublicId = null;
+    console.error("Network error while saving to Supabase: " + (e && e.message ? e.message : String(e)));
+  }
+}
+
+/* ============================================================
+   RESULTS
+   ============================================================ */
+
+/* Which phase does a given overall percentage fall in? Shared by the
+   respondent's own result and by the distribution over all submissions,
+   so both always use exactly the same rule. */
+function phaseIndexFor(pct){
+  const i = PHASES.findIndex(p => pct >= p.range[0] && pct <= p.range[1]);
+  return i < 0 ? 0 : i;
+}
+
+/* The reported phase is capped at one phase above the phase implied by
+   the Asset Data & Systems score: AI cannot outrun the data underneath
+   it. Applied to stored submissions too, so the distribution counts
+   organizations in the phase they were actually shown. */
+function gatedPhaseIndex(overallPct, assetDataPct){
+  const cap = Math.min(PHASES.length - 1, phaseIndexFor(assetDataPct) + 1);
+  return Math.min(phaseIndexFor(overallPct), cap);
+}
+
+/* Reads the score-only view (see the SQL in the config block above) and
+   derives every live figure on the dashboard from it: the phase
+   distribution, the element averages and the percentile. Returns null
+   when Supabase is unreachable, the view is missing, or nothing has been
+   submitted yet. */
+async function fetchSubmissionStats(myPct){
+  if (!supabaseClient) return null;
+  try {
+    const { data, error } = await supabaseClient
+      .from(SCORES_VIEW)
+      .select(['score_pct', ...ELEMENTS.map(el => el.col)].join(', '))
+      .limit(MAX_ROWS);
+
+    if (error){
+      console.warn(
+        `Could not read ${SCORES_VIEW} — the dashboard will omit every comparison. ` +
+        "code: " + error.code + " | message: " + error.message +
+        " | hint: " + error.hint
+      );
+      return null;
+    }
+    const rows = (data || []).filter(r => r.score_pct !== null && r.score_pct !== undefined);
+    if (rows.length === 0) return null;
+
+    // ---- phase distribution: count submissions per phase, using the
+    // same phase rule (including the gate) that each respondent was shown.
+    const counts = PHASES.map(() => 0);
+    const fIdx = ELEMENTS.findIndex(e => e.key === FOUNDATION_KEY);
+    const fCol = ELEMENTS[fIdx].col;
+    const n = elementCount(fIdx);   // statement count of the foundation dimension
+    rows.forEach(r => {
+      const dataPct = r[fCol] === null || r[fCol] === undefined
+        ? 100 // no data-foundation score stored: do not let the gate lower this row
+        : normalizePct(Number(r[fCol]), n);
+      counts[gatedPhaseIndex(Number(r.score_pct), dataPct)]++;
+    });
+    // Each share is rounded independently, so equal counts always show
+    // the same percentage. The four shares can therefore add up to 99 or
+    // 101 — preferable to two identical counts showing different numbers.
+    const phasePct = counts.map(c => Math.round((c / rows.length) * 100));
+
+    // ---- dimension averages (raw scores) over the same rows. Raw
+    // sums are averaged per dimension and normalized later against
+    // that dimension's own statement count, so the 4-statement
+    // dimension is never compared on the same raw axis as a
+    // 3-statement one.
+    const avgByElement = {};
+    ELEMENTS.forEach(el => {
+      const vals = rows.map(r => r[el.col]).filter(v => v !== null && v !== undefined).map(Number);
+      if (vals.length) avgByElement[el.key] = vals.reduce((a,b) => a+b, 0) / vals.length;
+    });
+
+    // ---- percentile: share of submissions scoring strictly lower
+    const lower = rows.filter(r => Number(r.score_pct) < myPct).length;
+    const percentile = Math.round((lower / rows.length) * 100);
+
+    return { rows: rows.length, counts, phasePct, avgByElement, percentile };
+  } catch (e){
+    console.warn("Could not compute statistics from Supabase:", e);
+    return null;
+  }
+}
+
+/* The previous build had a second fallback here that called the
+   get_benchmark_stats / get_percentile RPCs. Those were keyed on the
+   old dimension names over 15-statement totals, so on this question
+   set they would silently plot the wrong averages against the wrong
+   dimensions. The fallback is therefore removed: the page reads the
+   score view, and when that fails it shows no comparison at all. */
+
+async function showResults(){
+  card.style.display = 'none';
+  document.querySelector('.top-meta').style.display = 'none';
+  document.querySelector('.progress-track').style.display = 'none';
+  resultView.style.display = 'block';
+
+  const raw = totalRaw();
+  const count = totalCount();
+  const overallPct = Math.round(totalPct());
+
+  /* Phase gate (see gatedPhaseIndex): a plain average would let someone
+     with a broken data foundation land in "Integrated Asset Performance"
+     because strategy and analytics scored well. */
+  const dataIdx = ELEMENTS.findIndex(e => e.key === FOUNDATION_KEY);
+  const dataPct = Math.round(elementPct(dataIdx));
+  const uncappedIdx = phaseIndexFor(overallPct);
+  const finalIdx = gatedPhaseIndex(overallPct, dataPct);
+  const gated = finalIdx < uncappedIdx;
+  const phase = PHASES[finalIdx];
+
+  /* One query drives every figure on this page: phase distribution,
+     dimension averages and percentile. If it fails, those comparisons
+     are dropped rather than replaced by an estimate. */
+  let stats = null;
+  try {
+    stats = await withTimeout(fetchSubmissionStats(overallPct), 5000, "fetchSubmissionStats");
+  } catch (e){
+    console.warn("Statistics query failed or timed out, falling back:", e);
+  }
+
+  const real = stats && stats.rows >= MIN_SAMPLE
+    ? { avgByElement: stats.avgByElement, percentile: stats.percentile, sampleSize: stats.rows }
+    : null;
+  const avgRawByElement = real ? real.avgByElement : {};
+
+  // Counted phase distribution, or null — never an estimate.
+
+  document.getElementById('phaseTitleBig').textContent = phase.title;
+  document.getElementById('phaseDescBig').textContent = phase.desc;
+
+  /* The gauge shows the percentage only — no caption underneath.
+     stats.percentile is still computed, so re-adding a line such as
+     "Higher than X% of N completed scans" here is a one-liner. */
+
+  // semicircular gauge: the arc is half a circle of radius 81
+  const arcLength = Math.PI * 81;
+  const arc = document.getElementById('gaugeArc');
+  document.querySelector('.gauge-arc-bg').setAttribute('stroke-dasharray', arcLength);
+  arc.setAttribute('stroke-dasharray', arcLength);
+  arc.setAttribute('stroke-dashoffset', arcLength);
+  setTimeout(() => {
+    arc.setAttribute('stroke-dashoffset', arcLength - (overallPct/100)*arcLength);
+  }, 120);
+  document.getElementById('gaugePctText').textContent = overallPct;
+
+  // phase track
+  const track = document.getElementById('phaseTrack');
+  const trackLabels = document.getElementById('phaseTrackLabels');
+  track.innerHTML = ""; trackLabels.innerHTML = "";
+  PHASES.forEach((p, pi) => {
+    const seg = document.createElement('div');
+    seg.className = 'phase-seg' + (p.key===phase.key ? ' active' : '');
+    track.appendChild(seg);
+    const lab = document.createElement('div');
+    // "Level 3: Operational" -> "3 Operational", so five labels still
+    // fit side by side.
+    const short = p.title.replace(/^Level \d: /, '');
+    lab.innerHTML = `<span class="pnum">${pi+1}</span> <span class="pname">${short}</span>`;
+    lab.className = (p.key === phase.key ? 'current-label' : '');
+    trackLabels.appendChild(lab);
+  });
+
+  // element bars — weakest element is the LOWEST OWN SCORE, with ties
+  // broken towards the more foundational element (ELEMENTS order),
+  // so advice never points at analytics while the data layer is weak.
+  const barsWrap = document.getElementById('elementBars');
+  barsWrap.innerHTML = "";
+  let weakest = null;
+  ELEMENTS.forEach((el, i) => {
+    const n = elementCount(i);
+    const ownPct = elementPct(i);
+    /* No stored average for this dimension: show the bar without a
+       comparison instead of inventing one. */
+    const avgRaw = avgRawByElement[el.key];
+    const hasAvg = typeof avgRaw === 'number' && isFinite(avgRaw);
+    const avgPct = hasAvg ? normalizePct(avgRaw, n) : null;
+    const diff = hasAvg ? Math.round(ownPct - avgPct) : null; // percentage POINTS, not a ratio
+
+    if (weakest === null || ownPct < weakest.pct - 0.001){
+      weakest = { label: el.label, pct: ownPct, key: el.key };
+    }
+
+    const deltaClass = !hasAvg || diff === 0 ? 'neutral' : (diff > 0 ? 'up' : 'down');
+    const deltaText = !hasAvg
+      ? 'no average yet'
+      : diff === 0
+        ? 'at the average'
+        : (diff > 0 ? `▲ +${diff} pts vs average` : `▼ ${diff} pts vs average`);
+
+    /* The bars show the score only. The maturity level per dimension is
+       spelled out in full further down the page, so repeating it as a
+       chip here just crowded the bar labels. */
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <div class="bar-top">
+        <span class="name">${el.label}</span>
+        <span class="delta ${deltaClass}">${deltaText}</span>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:0%"></div>
+        ${hasAvg ? `<div class="bar-avg-marker" style="left:${avgPct.toFixed(1)}%"></div>` : ''}
+      </div>
+    `;
+    barsWrap.appendChild(row);
+    setTimeout(() => { row.querySelector('.bar-fill').style.width = ownPct + '%'; }, 120);
+  });
+
+  /* One marker per bar: the dotted line is the benchmark average for
+     that dimension, so it sits in a different place on every bar. */
+  const avgLabel = real ? "Average" : null;
+  document.getElementById('barsFootnote').innerHTML =
+    (avgLabel
+      ? `<div class="bars-legend">` +
+          `<span class="lg"><span class="lg-line dotted"></span>${avgLabel}</span>` +
+        `</div>`
+      : '') +
+    `Bars show your score per dimension, from 0% (nothing in place) to 100%.` +
+    (avgLabel ? '' : ` The average could not be loaded, so no comparison is shown.`);
+
+  const weakestInsight = (ELEMENTS.find(e => e.key === weakest.key) || {}).insight || '';
+  const weakestLevel = maturityFor(weakest.pct).level;
+  /* All five dimensions equal (every statement answered the same, or a
+     genuinely flat profile): there is no single weak spot to point at,
+     and calling the first one in the list "your biggest opportunity"
+     would be an artefact of the array order, not a finding. */
+  const flat = ELEMENTS.every((el, i) => Math.abs(elementPct(i) - weakest.pct) < 0.001);
+  const weakestSentence = flat
+    ? `Your five dimensions score the same, so nothing stands out as the single constraint — the phase description above is your best guide. `
+    : `Your lowest-scoring dimension is <b>${weakest.label}</b> at ${Math.round(weakest.pct)}% (level ${weakestLevel}, ${maturityFor(weakest.pct).label}) — the dimension holding your readiness back the most, ` +
+      `and therefore where a focused push pays off fastest. `;
+
+  document.getElementById('meaningText').innerHTML =
+    `Your overall score of <b>${overallPct}%</b> puts you at <b>level ${finalIdx+1}, ${phase.title.replace(/^Level \d: /,'')}</b>` +
+    `. ` +
+    weakestSentence + (flat ? '' : weakestInsight) +
+    (gated
+      ? ` Note: your combined score alone would put you at level ${uncappedIdx+1} ` +
+        `(${PHASES[uncappedIdx].title.replace(/^Level \d: /,'')}), but your data foundation (${dataPct}%) sets the ceiling — ` +
+        `analytics and AI cannot be more reliable than the data underneath them.`
+      : '');
+
+  document.getElementById('scaleNote').textContent =
+    `How to read the score: 0% means you disagreed strongly with every statement, 50% means neutral throughout, and 100% means you strongly agreed with all ${count}.`;
+
+  /* ---- maturity level per dimension (1-5) ---- */
+  const legend = document.getElementById('scaleLegend');
+  legend.innerHTML = "";
+  MATURITY.forEach(m => {
+    const step = document.createElement('div');
+    step.className = 'step' + (m.level === finalIdx + 1 ? ' current' : '');
+    step.innerHTML = `<b>${m.level} · ${m.label}` +
+      `${m.level === finalIdx + 1 ? ' — you are here' : ''}</b>${m.meaning}`;
+    legend.appendChild(step);
+  });
+
+  const matWrap = document.getElementById('maturityList');
+  matWrap.innerHTML = "";
+  ELEMENTS.forEach((el, i) => {
+    const ownPct = elementPct(i);
+    const m = maturityFor(ownPct);
+    /* Colour follows the level itself, not your overall score: 1 and 2
+       pale red, 3 grey, 4 and 5 pale green. The line underneath shows
+       what it takes to reach the next level up. */
+    const rel = m.level <= 2 ? 'low' : m.level === 3 ? 'mid' : 'high';
+
+    // levels[] is 0-indexed, the level itself is 1-5
+    const desc = (el.levels && el.levels[m.level - 1]) || m.meaning;
+    /* The action to reach the next level is listed once, in the
+       "Your next step per dimension" block below, not in the card. */
+
+    const row = document.createElement('div');
+    row.className = 'mat-row ' + rel;
+    row.innerHTML = `
+      <div class="mat-badge"><span class="n">${m.level}</span><span class="l">LEVEL</span></div>
+      <div class="mat-main">
+        <div class="mat-head">
+          <span class="mat-name">${el.label}</span>
+          <span class="mat-level">${m.label} · ${Math.round(ownPct)}%</span>
+        </div>
+        <div class="mat-desc">${desc}</div>
+      </div>
+    `;
+    matWrap.appendChild(row);
+  });
+
+  /* ---- next steps for the respondent's own phase ----
+     The v12 build listed all phases in an accordion here. It is
+     replaced by the steps and the call to action for the phase the
+     respondent is actually in: the phase track and the maturity
+     block above already explain the scale, so repeating every phase
+     buried the one action list that matters. */
+  document.getElementById('nextStepsTitle').textContent = `Your next step per dimension`;
+
+  /* ---- per-dimension next steps ----
+     Same order as the maturity cards above (ELEMENTS order), and the
+     same sentence as shown in each card. */
+  const stepsList = document.getElementById('nextStepsList');
+  stepsList.innerHTML = "";
+  ELEMENTS.forEach((el, i) => {
+    const m = maturityFor(elementPct(i));
+    const next = MATURITY[m.level];                    // undefined at level 5
+    const nextText = next && el.nextSteps ? el.nextSteps[m.level - 1] : null;
+    const li = document.createElement('li');
+    li.innerHTML = `<b>${el.label}</b><br>` +
+      (nextText ? `To reach level ${next.level}: ${nextText}` : `Already at the top level, so hold it there.`);
+    stepsList.appendChild(li);
+  });
+  document.getElementById('phaseCta').textContent = phase.cta;
+
+  autoEmailResults();
+}
+
+/* ============================================================
+   PDF EXPORT + EMAIL
+   ============================================================ */
+
+/* Width the dashboard is rendered at for the PDF. html2canvas renders
+   the clone in an iframe of this width, so the desktop layout is used
+   even when the respondent answered on a phone. */
+const PDF_RENDER_WIDTH = 960;
+
+function pdfFilename(){
+  const pct = Math.round(totalPct());
+  const d = new Date().toISOString().slice(0,10);
+  return `OHROS-AI-Readiness-Scan-${pct}pct-${d}.pdf`;
+}
+
+function setToast(id, text, isError){
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.classList.toggle('err', !!isError);
+  el.style.display = text ? 'block' : 'none';
+}
+
+/* Paints #resultView and slices it across A4 pages. Returns a jsPDF
+   document. Throws when either library is unavailable — the callers
+   turn that into a message rather than a silent failure. */
+async function buildResultsPdf(){
+  if (!window.html2canvas) throw new Error("html2canvas not loaded");
+  const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+  if (!jsPDFCtor) throw new Error("jsPDF not loaded");
+
+  /* Page breaks are taken from the bottom edge of whole blocks — a card,
+     a bar row, a maturity row — so a page never splits a card in half.
+     Measured inside the clone, because the clone is laid out at
+     PDF_RENDER_WIDTH while the live page may be on a phone. */
+  const SCALE = 2;
+  let breaks = [];
+
+  const canvas = await html2canvas(document.getElementById('resultView'), {
+    scale: SCALE,
+    backgroundColor: '#ffffff',
+    windowWidth: PDF_RENDER_WIDTH,
+    useCORS: true,
+    onclone: (doc) => {
+      // The buttons are not part of the document the reader receives.
+      doc.querySelectorAll('.no-pdf').forEach(el => el.remove());
+      const wrap = doc.querySelector('.wrap');
+      if (wrap){ wrap.style.maxWidth = PDF_RENDER_WIDTH + 'px'; wrap.style.width = '100%'; }
+      doc.body.style.padding = '18px';
+      doc.body.style.background = '#ffffff';
+
+      try {
+        const root = doc.getElementById('resultView');
+        const top = root.getBoundingClientRect().top;
+        const sel = '#resultView > *, .phase-hero, .bar-row, .meaning-card, ' +
+                    '.scale-legend, .mat-row, .next-steps, .next-steps li';
+        breaks = [...root.querySelectorAll(sel)]
+          .map(el => (el.getBoundingClientRect().bottom - top) * SCALE)
+          .filter(v => v > 0)
+          .sort((a, b) => a - b);
+      } catch (e){
+        breaks = [];   // fall back to fixed-height slices
+      }
+    }
+  });
+
+  const pdf = new jsPDFCtor({ unit:'pt', format:'a4', compress:true });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 22;
+  const imgW = pageW - margin * 2;
+  const pxToPt = imgW / canvas.width;          // one canvas pixel in points
+  const sliceHpx = (pageH - margin * 2) / pxToPt;
+
+  /* Largest block boundary that still fits on the page; falls back to a
+     full-height slice when a single block is taller than a page. */
+  function nextBreak(y){
+    const limit = y + sliceHpx;
+    if (limit >= canvas.height) return canvas.height - y;
+    let best = 0;
+    for (const b of breaks){
+      if (b > y + sliceHpx * 0.35 && b <= limit) best = b;
+      if (b > limit) break;
+    }
+    return best ? best - y : sliceHpx;
+  }
+
+  const slice = document.createElement('canvas');
+  const ctx = slice.getContext('2d');
+  let y = 0, page = 0;
+  while (y < canvas.height - 1){
+    const h = Math.min(nextBreak(y), canvas.height - y);
+    slice.width = canvas.width;
+    slice.height = h;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, slice.width, slice.height);
+    ctx.drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+    if (page) pdf.addPage();
+    pdf.addImage(slice.toDataURL('image/jpeg', 0.92), 'JPEG', margin, margin, imgW, h * pxToPt);
+    y += h; page++;
+  }
+  return pdf;
+}
+
+async function withBusy(btn, label, fn){
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  try { return await fn(); }
+  finally { btn.disabled = false; btn.textContent = original; }
+}
+
+document.getElementById('downloadBtn').onclick = async () => {
+  const btn = document.getElementById('downloadBtn');
+  setToast('pdfToast', '');
+  try {
+    await withBusy(btn, "Building PDF…", async () => {
+      const pdf = await buildResultsPdf();
+      pdf.save(pdfFilename());
+    });
+    setToast('pdfToast', "PDF downloaded.");
+    setTimeout(() => setToast('pdfToast', ''), 4000);
+  } catch (e){
+    console.error("Could not build the PDF:", e);
+    setToast('pdfToast', "Could not build the PDF. Please try again, or use Copy results.", true);
+  }
+};
+
+/* One send path, used by the automatic send and by the button. Returns
+   "sent" or "already" (the function refuses a second send per
+   submission); anything else throws. */
+async function sendResultsEmail(){
+  if (!submissionPublicId) throw new Error("Submission was not stored — nothing to look the recipient up by");
+
+  const pdf = await buildResultsPdf();
+  const base64 = pdf.output('datauristring').split(',')[1];
+
+  let res;
+  try {
+    res = await fetch(EMAIL_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({
+        submission_id: submissionPublicId,
+        filename: pdfFilename(),
+        pdf_base64: base64
+      })
+    });
+  } catch (e){
+    /* No HTTP status at all: the request never completed. Almost always
+       the function is not deployed yet, or its CORS headers do not allow
+       this site. Both look identical from the browser. */
+    throw new MailError("unreachable",
+      `Could not reach ${EMAIL_ENDPOINT} — ${e && e.message ? e.message : e}`);
+  }
+
+  if (res.status === 429) return "already";   // already mailed for this submission
+  if (res.ok) return "sent";
+
+  const detail = await res.text().catch(() => '');
+  const kind =
+    res.status === 404 ? (detail.includes("Unknown submission") ? "unknown-submission" : "not-deployed") :
+    res.status === 401 || res.status === 403 ? "unauthorized" :
+    res.status === 502 ? "provider" :
+    "other";
+  throw new MailError(kind, `Mail endpoint returned ${res.status} ${detail}`);
+}
+
+class MailError extends Error {
+  constructor(kind, message){ super(message); this.kind = kind; }
+}
+
+/* What the visitor is told, per failure. Deliberately short: the full
+   reason is in the console for whoever maintains this. */
+const MAIL_ERROR_TEXT = {
+  "unreachable":        "The mail service could not be reached. Download the PDF here instead.",
+  "not-deployed":       "The mail service is not available yet. Download the PDF here instead.",
+  "unknown-submission": "Your results were not stored, so they cannot be emailed. Download the PDF here instead.",
+  "unauthorized":       "The mail service refused the request. Download the PDF here instead.",
+  "provider":           "The mail could not be delivered. Download the PDF here instead.",
+  "other":              "We could not email your results. Download the PDF here instead."
+};
+
+function markEmailSent(){
+  emailSent = true;
+  const btn = document.getElementById('emailBtn');
+  btn.disabled = true;
+  btn.textContent = "PDF emailed ✓";
+  setToast('pdfToast', `Sent to ${leadInfo.email}. Check your spam folder if it does not arrive.`);
+}
+
+function markEmailFailed(err){
+  const btn = document.getElementById('emailBtn');
+  btn.disabled = false;
+  btn.textContent = "Email me the PDF";
+  const kind = (err && err.kind) || "other";
+  setToast('pdfToast', MAIL_ERROR_TEXT[kind] || MAIL_ERROR_TEXT.other, true);
+}
+
+/* ---- automatic send ----
+   Fires once, on its own, as soon as the dashboard is on screen: the
+   respondent already asked for their results by email on the previous
+   step, so making them click again only loses people. The button stays
+   for a manual retry when this fails.
+
+   The delay lets the bars and the gauge finish animating — html2canvas
+   photographs whatever is on screen, so capturing at 200ms would put
+   half-drawn bars in the PDF. */
+const AUTO_EMAIL = true;
+const AUTO_EMAIL_DELAY_MS = 1500;
+
+function autoEmailResults(){
+  if (!AUTO_EMAIL || emailSent || !submissionPublicId) return;
+  const btn = document.getElementById('emailBtn');
+  btn.disabled = true;
+  btn.textContent = "Emailing your PDF…";
+  setTimeout(async () => {
+    try {
+      await sendResultsEmail();
+      markEmailSent();
+    } catch (e){
+      console.error("Automatic send failed:", e);
+      markEmailFailed(e);
+    }
+  }, AUTO_EMAIL_DELAY_MS);
+}
+
+document.getElementById('emailBtn').onclick = async () => {
+  const btn = document.getElementById('emailBtn');
+  setToast('pdfToast', '');
+
+  if (!submissionPublicId){
+    /* No stored submission means the function has nothing to look the
+       recipient up by, and sending an address from the browser is
+       exactly what this design avoids. */
+    setToast('pdfToast', "Your results could not be saved, so they cannot be emailed. Use Download PDF instead.", true);
+    return;
+  }
+
+  try {
+    await withBusy(btn, "Sending…", sendResultsEmail);
+    markEmailSent();
+  } catch (e){
+    console.error("Could not email the results:", e);
+    markEmailFailed(e);
+  }
+};
+
+renderQuestion();
+</script>
+</body>
+</html>
