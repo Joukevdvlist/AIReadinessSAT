@@ -176,7 +176,9 @@
     }
     .phase-hero{padding:24px 18px 20px;}
     .phase-hero h2{font-size:22px;}
-    .gauge-wrap{flex:1 1 100%;}
+    .phase-hero-top{flex-direction:column;align-items:flex-start;gap:18px;}
+    .phase-hero-copy{width:100%;}
+    .gauge-wrap{flex:0 0 auto;width:100%;}
     .gauge-svg{margin:0 0 4px;}
     /* Five phase names never fit across a phone; the fifth one clips.
        Numbers only; the names are spelled out in the maturity legend
@@ -250,14 +252,17 @@
     background:var(--navy);
     border-radius:18px;color:#fff;padding:30px 32px 24px;margin-bottom:22px;
   }
-  .phase-hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:28px;flex-wrap:wrap;}
-  .phase-hero-copy{flex:1 1 380px;min-width:280px;}
+  /* Always side by side: copy on the left, gauge on the right. The row never
+     wraps, however narrow the card is; only on phones does the gauge drop
+     underneath (see the mobile media query). */
+  .phase-hero-top{display:flex;flex-direction:row;justify-content:space-between;align-items:center;gap:28px;flex-wrap:nowrap;}
+  .phase-hero-copy{flex:1 1 auto;min-width:0;}
   .phase-eyebrow{font-size:12px;letter-spacing:.1em;color:var(--gold-bright);font-weight:800;text-transform:uppercase;margin-bottom:10px;}
   .phase-hero h2{font-size:26px;line-height:1.25;margin:0 0 12px;}
   .phase-hero p{font-size:14.5px;color:#c3cfe6;line-height:1.65;margin:0;}
 
   /* semicircular gauge, matching the reference layout */
-  .gauge-wrap{flex:0 0 224px;max-width:100%;}
+  .gauge-wrap{flex:0 0 224px;width:224px;}
   .gauge-svg{display:block;width:210px;height:118px;margin:0 auto 4px;}
   .gauge-arc-bg{stroke:rgba(255,255,255,0.14);}
   .gauge-arc-fg{stroke:var(--amber);transition:stroke-dashoffset .9s ease;}
