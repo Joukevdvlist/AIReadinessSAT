@@ -242,10 +242,12 @@
   .btn-share[disabled], .btn-primary[disabled]{opacity:.6;cursor:default;}
   .btn-quiet{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
   .btn-quiet:hover{background:transparent;color:var(--navy);border-color:var(--navy);}
-  /* A single Download PDF button, flush with the left edge of the title. */
+  /* Download PDF (navy) and Retake assessment (ghost) side by side, flush
+     with the left edge of the title. */
   .dash-actions{margin-top:14px;text-align:left;}
   .action-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;align-items:flex-start;}
   .action-row button{flex:0 0 auto;}
+  .action-row .btn-ghost{padding:11.5px 20px;font-size:14px;white-space:nowrap;}
 
   .phase-hero{
     position:relative;overflow:hidden;
@@ -488,6 +490,7 @@
       <div class="dash-actions no-pdf">
         <div class="action-row">
           <button class="btn-share" id="downloadBtn" type="button">Download PDF</button>
+          <button class="btn-ghost" id="retakeBtn" type="button">Retake assessment</button>
         </div>
         <div class="toast" id="pdfToast"></div>
       </div>
@@ -1115,9 +1118,11 @@ document.getElementById('leadNextBtn').onclick = async () => {
     await withTimeout(showResults(), 6000, "showResults");
   } catch (err){
     console.error("Something went wrong while saving or showing results:", err);
+    try { await showResults(); } catch(e2){ console.error(e2); }
+  } finally {
+    /* Always restore the button, so a retake finds it clickable again. */
     btn.disabled = false;
     btn.textContent = "Show my results";
-    try { await showResults(); } catch(e2){ console.error(e2); }
   }
 };
 
@@ -1607,6 +1612,24 @@ document.getElementById('downloadBtn').onclick = async () => {
     console.error("Could not build the PDF:", e);
     setToast('pdfToast', "Could not build the PDF. Please try again, or use Copy results.", true);
   }
+};
+
+/* Retake: clear every answer, hide the dashboard and return to the
+   introduction with the progress bar back at 0%. Name and e-mail stay in
+   the details form, so a second run only asks for the statements again. */
+document.getElementById('retakeBtn').onclick = () => {
+  current = 0;
+  answers = ELEMENTS.map(el => new Array(el.statements.length).fill(null));
+  setToast('pdfToast', '');
+  const leadBtn = document.getElementById('leadNextBtn');
+  leadBtn.disabled = false;
+  leadBtn.textContent = "Show my results";
+  resultView.style.display = 'none';
+  card.style.display = '';
+  document.querySelector('.top-meta').style.display = '';
+  document.querySelector('.progress-track').style.display = '';
+  showIntro();
+  window.scrollTo({top:0, behavior:'smooth'});
 };
 
 showIntro();
