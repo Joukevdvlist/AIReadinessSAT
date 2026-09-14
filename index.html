@@ -236,9 +236,12 @@
   .dash-header{margin-bottom:18px;}
   .dash-header h1{margin:0;}
   .dash-sub{color:var(--muted);font-size:14px;margin-top:4px;}
+  /* Mirror of .btn-ghost: navy fill that flips to white on hover. The
+     border is always there so the button keeps its size when it flips. */
   .btn-share{background:var(--navy);color:#fff;white-space:nowrap;
-    font-family:inherit;border:none;border-radius:10px;padding:13px 20px;font-size:14px;font-weight:700;cursor:pointer;}
-  .btn-share:hover{background:var(--navy-light);}
+    font-family:inherit;border:1.5px solid var(--navy);border-radius:10px;padding:11.5px 20px;font-size:14px;font-weight:700;cursor:pointer;transition:.15s ease;}
+  .btn-share:hover{background:#fff;color:var(--navy);border-color:var(--navy);}
+  .btn-share[disabled]:hover{background:var(--navy);color:#fff;}
   .btn-share[disabled], .btn-primary[disabled]{opacity:.6;cursor:default;}
   .btn-quiet{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
   .btn-quiet:hover{background:transparent;color:var(--navy);border-color:var(--navy);}
